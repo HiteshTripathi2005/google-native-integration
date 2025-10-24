@@ -8,8 +8,8 @@ import ChatInput from './ChatInput';
 export default function Chat() {
   const { messages, isLoading, isFetchingMessages, error, sendMessage, clearMessages } = useChatStore();
 
-  const handleSendMessage = async (message: string) => {
-    await sendMessage(message);
+  const handleSendMessage = async (message: string, files?: File[]) => {
+    await sendMessage(message, files);
   };
 
   return (

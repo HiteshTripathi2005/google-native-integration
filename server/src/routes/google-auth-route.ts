@@ -21,7 +21,7 @@ export default async function googleAuthRoute(fastify: FastifyInstance) {
             console.log('userId', userId);
             const url = oauth2Client.generateAuthUrl({
                 access_type: 'offline',
-                scope: ['https://www.googleapis.com/auth/calendar',"https://www.googleapis.com/auth/gmail.modify"],
+                scope: ['https://www.googleapis.com/auth/calendar',"https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/youtube"],
                 prompt: 'consent',
                 state: userId
             });

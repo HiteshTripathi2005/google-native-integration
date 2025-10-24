@@ -13,8 +13,12 @@ export const users = pgTable('users', {
 export const documents = pgTable('documents', {
   id: serial('id').primaryKey(),
   userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  filename: varchar('filename', { length: 255 }).notNull(),
   content: text('content'),
-  embedding: vector('embedding', { dimensions: 1536 })
+  embedding: vector('embedding', { dimensions: 768 }), // Updated to 768 for sentence-transformers models
+  fileType: varchar('file_type', { length: 50 }),
+  fileSize: integer('file_size'),
+  uploadedAt: timestamp('uploaded_at').defaultNow().notNull(),
 })
 
 export const messages = pgTable('messages', {

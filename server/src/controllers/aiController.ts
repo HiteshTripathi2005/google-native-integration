@@ -3,17 +3,20 @@ import { ModelMessage, smoothStream, stepCountIs, streamText } from 'ai';
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { getSystemPrompt } from '../utils/systemprompt.ts';
 import { db } from '../db/index.ts';
-import { messages, userTokens } from '../db/schema.ts';
-import { eq, desc, and } from 'drizzle-orm';
+import { messages, userTokens, documents } from '../db/schema.ts';
+import { eq, desc, and, sql } from 'drizzle-orm';
 import timeTool from '../tools/time-tool.ts';
 import { mcpToolsFromSmithery, type McpClientHandle } from '../utils/mcp.ts';
 import { listCalendarEvents, listAllCalendars, createCalendar, createCalendarEvent, deleteCalendarEvent, deleteCalendar } from '../tools/calendar-tools.ts';
 import { listEmails, sendEmail } from '../tools/gmail-tool.ts';
 import { AuthenticatedRequest } from '../middleware/auth.js';
+import { semanticSearch } from './documentController.js';
+import { searchYoutubeVideos, getChannelInfo, getChannelVideos } from '../tools/youtube-tool.ts';
 
 interface StreamTextRequestBody {
   prompt: string;
   conversationId?: string;
+  fileIds?: number[];
 }
 
 const openrouter = createOpenRouter({
@@ -78,7 +81,7 @@ export const streamTextController = async (
   reply: FastifyReply
 ) => {
   const body = request.body as StreamTextRequestBody;
-  const { prompt, conversationId = 'default' } = body;
+  const { prompt, conversationId = 'default', fileIds } = body;
 
   if (!prompt) {
     return reply.code(400).send({ error: 'Prompt is required' });
@@ -140,6 +143,9 @@ export const streamTextController = async (
         deleteCalendar,
         listEmails,
         sendEmail,
+        searchYoutubeVideos,
+        getChannelInfo,
+        getChannelVideos,
       };
     }
 
@@ -148,7 +154,7 @@ export const streamTextController = async (
 
     const result = await streamText({
       model: model,
-      messages: await buildMessages(prompt, conversationId, userId) as ModelMessage[],
+      messages: await buildMessages(prompt, conversationId, userId, fileIds) as ModelMessage[],
       experimental_transform: smoothStream({
         delayInMs: 50,
         chunking: "word"
@@ -314,7 +320,7 @@ export const streamTextController = async (
   }
 };
 
-const buildMessages = async (prompt: string, conversationId: string, userId: number) => {
+const buildMessages = async (prompt: string, conversationId: string, userId: number, fileIds?: number[]) => {
   // Get most recent 11 messages (newest first) to ensure we have 10 previous messages (excluding current user message)
   const history = await db
     .select()
@@ -338,13 +344,46 @@ const buildMessages = async (prompt: string, conversationId: string, userId: num
     pastConversationContent += '</past-conversation>\n\n';
   }
 
+  // Perform semantic search if fileIds are provided or search across all user documents
+  let relevantDocumentsContent = '';
+  try {
+    let searchResults = [];
+    if (fileIds && fileIds.length > 0) {
+      // Search within specific documents
+      searchResults = await db
+        .select()
+        .from(documents)
+        .where(and(
+          eq(documents.userId, userId),
+          sql`${documents.id} = ANY(${fileIds})`
+        ));
+    } else {
+      // Perform semantic search across all user documents
+      searchResults = await semanticSearch(prompt, userId, 3); // Get top 3 relevant documents
+    }
+
+    if (searchResults.length > 0) {
+      relevantDocumentsContent = '<relevant-documents>\n';
+      for (const doc of searchResults) {
+        relevantDocumentsContent += `Document: ${doc.filename}\n`;
+        relevantDocumentsContent += `Content: ${doc.content.substring(0, 1000)}${doc.content.length > 1000 ? '...' : ''}\n\n`;
+      }
+      relevantDocumentsContent += '</relevant-documents>\n\n';
+    }
+  } catch (error) {
+    console.warn('⚠️ Semantic search failed, continuing without document context:', error);
+  }
+
   const messageArray: ModelMessage[] = [
     { role: 'system' as const, content: getSystemPrompt() },
   ];
   const currentUserMessage = `current user message: ${prompt}`;
 
-  // Add current user message
-  messageArray.push({ role: 'user' as const, content: pastConversationContent + currentUserMessage });
+  // Add current user message with document context
+  messageArray.push({
+    role: 'user' as const,
+    content: relevantDocumentsContent + pastConversationContent + currentUserMessage
+  });
 
   return messageArray;
 };

@@ -4,6 +4,7 @@ import { aiRoutes } from './routes/aiRoutes.ts';
 import authRoutes from './routes/authRoutes.ts';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import googleAuthRoute from './routes/google-auth-route.ts';
 import { google } from 'googleapis';
 import { db } from './db/index.ts';
@@ -58,6 +59,12 @@ fastify.register(cors, {
 
 fastify.register(cookie, {
   secret: process.env.COOKIE_SECRET || 'your-cookie-secret-key',
+});
+
+fastify.register(multipart, {
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB max file size
+  },
 });
 
 // Register routes

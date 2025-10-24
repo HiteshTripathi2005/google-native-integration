@@ -40,7 +40,7 @@ interface ChatStore {
   isFetchingMessages: boolean;
   error: string | null;
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
-  sendMessage: (prompt: string) => Promise<void>;
+  sendMessage: (prompt: string, files?: File[]) => Promise<void>;
   clearMessages: () => Promise<void>;
   fetchMessages: () => Promise<void>;
   setLoading: (loading: boolean) => void;
@@ -65,7 +65,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }));
   },
 
-  sendMessage: async (prompt: string) => {
+  sendMessage: async (prompt: string, files?: File[]) => {
     const { addMessage, setLoading, setError, conversationId } = get();
 
     // Add user message
@@ -75,13 +75,40 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     setError(null);
 
     try {
+      // Upload files first if any
+      let uploadedFileIds: number[] = [];
+      if (files && files.length > 0) {
+        for (const file of files) {
+          const formData = new FormData();
+          formData.append('file', file);
+
+          const uploadResponse = await fetch(`${API_BASE_URL}/ai/upload`, {
+            method: 'POST',
+            credentials: 'include',
+            body: formData,
+          });
+
+          if (!uploadResponse.ok) {
+            throw new Error(`File upload failed: ${uploadResponse.statusText}`);
+          }
+
+          const uploadResult = await uploadResponse.json();
+          // Handle both single documentId and array of documentIds for chunked uploads
+          if (uploadResult.documentIds && Array.isArray(uploadResult.documentIds)) {
+            uploadedFileIds.push(...uploadResult.documentIds);
+          } else if (uploadResult.documentId) {
+            uploadedFileIds.push(uploadResult.documentId);
+          }
+        }
+      }
+
       const response = await fetch(`${API_BASE_URL}/ai/streamtext`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include', // Include cookies for authentication
-        body: JSON.stringify({ prompt, conversationId }),
+        body: JSON.stringify({ prompt, conversationId, fileIds: uploadedFileIds }),
       });
 
       if (!response.ok) {

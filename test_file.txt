@@ -1,0 +1,1 @@
+This is a test document for embeddings. It contains some text that should be processed correctly by the text extraction function.
